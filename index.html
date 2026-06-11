@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>退去精算 負担割合チェッカー — 原状回復ガイドライン準拠</title>
+<style>
+  :root { --main: #2f855a; --bg: #f7fafc; --border: #cbd5e0; }
+  * { box-sizing: border-box; }
+  body { font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif; margin: 0; background: var(--bg); color: #2d3748; }
+  header { background: var(--main); color: #fff; padding: 16px 24px; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; font-size: 13px; opacity: .9; }
+  main { max-width: 900px; margin: 0 auto; padding: 24px; }
+  section { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+  h2 { font-size: 16px; margin: 0 0 12px; border-left: 4px solid var(--main); padding-left: 8px; }
+  label { display: inline-block; font-size: 13px; margin: 6px 16px 2px 0; }
+  input, select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; }
+  button { background: var(--main); color: #fff; border: none; border-radius: 6px;
+    padding: 10px 18px; font-size: 14px; cursor: pointer; margin-right: 8px; }
+  button.sub { background: #718096; }
+  button.del { background: #e53e3e; padding: 6px 10px; font-size: 12px; }
+  .hint { font-size: 12px; color: #718096; margin: 6px 0; }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; font-size: 13px; width: 100%; }
+  th, td { border: 1px solid var(--border); padding: 6px 8px; text-align: center; }
+  th { background: #f0fff4; font-size: 12px; }
+  td.r { text-align: right; }
+  tr.total td { background: #fffaf0; font-weight: bold; }
+  .verdict { margin-top: 16px; padding: 14px; background: #f0fff4; border-radius: 8px; font-size: 15px; }
+  .verdict strong { color: var(--main); font-size: 20px; }
+  .disclaimer { font-size: 11px; color: #718096; margin-top: 16px; line-height: 1.6; }
+  footer { text-align: center; font-size: 12px; color: #718096; padding: 24px; }
+  @media print { header p, #addSec, footer, button { display: none; } section { border: none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>退去精算 負担割合チェッカー</h1>
+  <p>国交省「原状回復をめぐるトラブルとガイドライン」の考え方(経過年数による償却)に沿って、借主・貸主の負担額の目安を自動計算。データは送信されません。</p>
+</header>
+<main>
+  <section id="addSec">
+    <h2>1. 入居情報</h2>
+    <label>入居していた年数 <input type="number" id="years" value="4" min="0" max="50" step="0.5" style="width:70px"> 年</label>
+    <p class="hint">※ガイドラインでは、壁紙や設備は年数が経つほど価値が下がり、借主の負担割合も下がる、という考え方をします(例: 壁紙は6年で残存価値1円)。</p>
+
+    <h2 style="margin-top:20px">2. 修繕箇所を追加</h2>
+    <label>箇所
+      <select id="itemSel"></select>
+    </label>
+    <label>修繕費用(見積額) <input type="number" id="cost" value="30000" min="0" step="1000" style="width:100px"> 円</label>
+    <label>損耗の原因
+      <select id="cause">
+        <option value="kashitsu">借主の故意・過失(タバコのヤニ、ペットの傷、不注意の破損など)</option>
+        <option value="normal">通常の使用による損耗・経年劣化(日焼け、家具の設置跡など)</option>
+      </select>
+    </label>
+    <div style="margin-top:10px">
+      <button onclick="addItem()">追加する</button>
+      <button class="sub" onclick="loadSample()">サンプルで試す</button>
+    </div>
+  </section>
+
+  <section id="resultSec" style="display:none">
+    <h2>3. 負担割合の計算結果</h2>
+    <div class="tablewrap"><table id="resultTable"></table></div>
+    <div class="verdict" id="verdict"></div>
+    <div style="margin-top:14px">
+      <button class="sub" onclick="window.print()">印刷 / PDF保存</button>
+      <button class="sub" onclick="clearAll()">最初からやり直す</button>
+    </div>
+    <p class="disclaimer">
+      ※この計算は国土交通省ガイドラインの一般的な考え方に基づく<strong>目安</strong>です。実際の負担は、契約書の特約、入居時の物件の状態、損耗の具体的な状況によって変わります。金額の確定や交渉の根拠としてではなく、話し合いの出発点としてご利用ください。<br>
+      ※「通常の使用による損耗・経年劣化」の修繕費用は、原則として貸主(オーナー)負担です(ガイドラインの基本原則)。<br>
+      ※ハウスクリーニング代の借主負担は、契約書に明確な特約がある場合に限られます。
+    </p>
+  </section>
+</main>
+<footer>退去精算 負担割合チェッカー(プロトタイプ)— 3日工場 第2弾</footer>
+
+<script>
+// 国交省ガイドライン別表の耐用年数(主要なもの)。0=償却なし(経過年数を考慮しない)
+const ITEMS = [
+  { name: "壁紙(クロス)張替え", years: 6 },
+  { name: "クッションフロア張替え", years: 6 },
+  { name: "カーペット張替え", years: 6 },
+  { name: "畳床の交換", years: 6 },
+  { name: "エアコン等の設備修理・交換", years: 6 },
+  { name: "流し台の交換", years: 5 },
+  { name: "便器・洗面台など水回り設備", years: 15 },
+  { name: "ユニットバス", years: 15 },
+  { name: "フローリング部分補修", years: 0, note: "経過年数を考慮しない(部分補修)" },
+  { name: "フローリング全面張替え", years: 22, note: "建物耐用年数で償却(木造22年で計算)" },
+  { name: "畳表の表替え", years: 0, note: "消耗品扱い・償却なし" },
+  { name: "襖紙・障子紙の張替え", years: 0, note: "消耗品扱い・償却なし" },
+  { name: "鍵の交換(紛失)", years: 0, note: "償却なし・実費" },
+  { name: "ハウスクリーニング", years: 0, note: "特約がある場合のみ借主負担" }
+];
+let rows = [];
+
+const sel = document.getElementById("itemSel");
+ITEMS.forEach((it, i) => {
+  const o = document.createElement("option");
+  o.value = i;
+  o.textContent = it.name + (it.years ? `(耐用${it.years}年)` : "");
+  sel.appendChild(o);
+});
+
+function addItem() {
+  const it = ITEMS[+sel.value];
+  const cost = parseFloat(document.getElementById("cost").value) || 0;
+  const cause = document.getElementById("cause").value;
+  if (cost <= 0) { alert("修繕費用を入れてください"); return; }
+  rows.push({ item: it, cost, cause });
+  render();
+}
+
+function calcShare(row, years) {
+  if (row.cause === "normal") return 0; // 通常損耗は貸主負担が原則
+  if (row.item.years === 0) return row.cost; // 償却なし
+  const ratio = Math.max(1 - years / row.item.years, 0);
+  return Math.max(Math.round(row.cost * ratio), 1); // 残存価値1円ルール
+}
+
+function render() {
+  const years = parseFloat(document.getElementById("years").value) || 0;
+  let html = "<tr><th>箇所</th><th>修繕費用</th><th>損耗の原因</th><th>償却の考え方</th><th>借主負担(目安)</th><th>貸主負担(目安)</th><th></th></tr>";
+  let tenant = 0, owner = 0, total = 0;
+  rows.forEach((r, i) => {
+    const share = calcShare(r, years);
+    tenant += share; owner += r.cost - share; total += r.cost;
+    const causeTxt = r.cause === "kashitsu" ? "借主の故意・過失" : "通常損耗・経年劣化";
+    const ageTxt = r.cause === "normal" ? "原則貸主負担"
+      : r.item.years === 0 ? (r.item.note || "償却なし")
+      : `${r.item.years}年で償却(${years}年経過)`;
+    html += `<tr><td>${r.item.name}</td><td class="r">${r.cost.toLocaleString()}円</td>
+      <td>${causeTxt}</td><td>${ageTxt}</td>
+      <td class="r">${share.toLocaleString()}円</td><td class="r">${(r.cost - share).toLocaleString()}円</td>
+      <td><button class="del" onclick="rows.splice(${i},1);render()">削除</button></td></tr>`;
+  });
+  html += `<tr class="total"><td>合計</td><td class="r">${total.toLocaleString()}円</td><td></td><td></td>
+    <td class="r">${tenant.toLocaleString()}円</td><td class="r">${owner.toLocaleString()}円</td><td></td></tr>`;
+  document.getElementById("resultTable").innerHTML = html;
+  document.getElementById("verdict").innerHTML =
+    `修繕費用 合計 ${total.toLocaleString()}円 のうち、ガイドラインの考え方では<br>` +
+    `借主(退去者)の負担目安: <strong>${tenant.toLocaleString()}円</strong> / 貸主(オーナー)の負担目安: ${owner.toLocaleString()}円`;
+  document.getElementById("resultSec").style.display = rows.length ? "" : "none";
+}
+
+function clearAll() { rows = []; render(); }
+
+function loadSample() {
+  document.getElementById("years").value = 4;
+  rows = [
+    { item: ITEMS[0], cost: 60000, cause: "kashitsu" },
+    { item: ITEMS[8], cost: 25000, cause: "kashitsu" },
+    { item: ITEMS[13], cost: 35000, cause: "normal" },
+    { item: ITEMS[4], cost: 40000, cause: "normal" }
+  ];
+  render();
+  document.getElementById("resultSec").scrollIntoView({ behavior: "smooth" });
+}
+</script>
+</body>
+</html>
